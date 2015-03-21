@@ -1,0 +1,155 @@
+---
+title: "DSS. Practical Machine Learning. Course Project"
+output: html_document
+---
+<br>
+<h3>Executive Summary</h3>
+
+The purpose of this report is to build a predictive model to determine if a barbell lift has been performed correctly based on accelerometer data. The report is based on data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways recorded in the classe variable as A-E. This is the variable we would like to predict.
+
+We used a random forest model built using cross validation which gave an out-of-sample accuracy of 99.7% (error rate is 1 - accuracy). This gave us the predcition for the final test data of: 'B' 'A' 'B' 'A' 'A' 'E' 'D' 'B' 'A' 'A' 'B' 'C' 'B' 'A' 'E' 'E' 'A' 'B' 'B' 'B'
+<br>
+<h3>Data Processing</h3>
+
+Download the test and train data and read into R:
+
+```{r}
+if(!file.exists("./data")){dir.create("./data")}
+fileURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(fileURL, destfile="./data/train.csv", method="curl")
+train <- read.csv("./data/train.csv")
+fileURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileURL, destfile="./data/test.csv", method="curl")
+testFinal <- read.csv("./data/test.csv")
+rm(fileURL)
+```
+<br>
+<h3>Exploratory Data Analysis</h3>
+
+```{r}
+library(caret); library(ggplot2)
+dim(train); dim(testFinal)
+```
+
+Both data sets contain 160 variables with the training dataset containing 19622 observations and the test set containing 20. An initial look at the data allows us to sensibly remove a number of the 160 variables by retaining only those relevant to accelerometer data.
+
+<br>
+<b>Preparing the data</b>
+Seperate out the 'train' set into a training and validation dataset to allow cross validation and avoid overfitting:
+
+```{r}
+set.seed(16)
+inTrain <- createDataPartition(train$classe, p=0.6, list=FALSE)
+training <- train[inTrain,]
+validation <- train[-inTrain,]
+```
+
+Remove near zero variables:
+```{r}
+nzv <- nearZeroVar(training)
+training <- training[,-nzv]; validation <- validation[,-nzv]; testFinal <- testFinal[,-nzv]
+```
+
+Remove columns with a significant number of na values:
+```{r}
+nona <- c(colSums(is.na(training)) <= 0.7)
+training <- training[,nona]
+validation <- validation[,nona]
+testFinal <- testFinal[,nona]
+```
+
+Remove the columns which are names and metadata so of no value to the predcition in question:
+```{r}
+training <- training[,6:59]
+validation <- validation[,6:59]
+testFinal <- testFinal[,6:59]
+```
+
+<br>
+We now have our clean dataset so we can apply our models. We have chosen to look at tree models as they should work better on a non-linear dataset.
+
+<br>
+<h3>Fitting a model. Prediction tree</h3>
+
+```{r}
+set.seed(16)
+treeFit <- train(classe ~ ., method="rpart", data=training)
+treeFit
+```
+
+<br>
+<b>Prediction (prediction tree)</b>
+```{r}
+predTree <- predict(treeFit, validation)
+validation$predRight <- predTree==validation$classe; table(predTree, validation$classe)
+```
+
+This would appear to give some pretty weak prediction and a low accuracy value. We will try random forest.
+
+<br>
+<h3>Fitting a model. Random forest</h3>
+Building the model on the training data:
+```{r}
+set.seed(16)
+RForest <- train(classe ~ ., data=training, method="rf", importance=TRUE)
+RForest$finalModel
+```
+
+This shows a very low OOB estimate of error rate giving us confidence in the model. 
+
+<h3>Cross Validation</h3>
+Annex A shows the confusion matrix for this model when applied to the seperated validation dataset. This shows we are already getting a very high level of accuracy. Annex A shows our estimated out-of-sample accuracy rate of 99.7% as measured on the seperated testing set. Our error rate is 1 - accuracy.
+
+<br>
+<h3>Prediction. Random forest</h3>
+We can then apply the model to predict in the validation set
+```{r}
+predRF1 <- predict(RForest, validation)
+validation$predRight <- predRF1==validation$classe; table(predRF1, validation$classe)
+```
+
+<br>
+We prefer the random forest to the prediction tree for this data set. This shows we have been pretty accurate in our prediction using random forest on the seperated validation set which was used for cross validation. At this stage we could go to prediction on the final testing set but first we should look at the importance of the variables:
+
+<br>
+<h3>Importance of variables</h3>
+See Annex B for the results which appears to identify a top 10 set of variables that are important to this prediction exercise. The dataset could be cut down further using this analysis but there is not a clear enough distinction between the important and unimportant variables to justify this and given the already high level of accuracy we have chosen not to cut down the variables in this way. 
+
+<br>
+<h3>Model Prediction. Random Forest. Final Test Set</h3>
+Predicting on the final test data, we use the model built on the cross validated training data only to avoid overfitting. This is the first time the model has been applied to the final test set and gives us our 20 predicted classe results: 
+```{r}
+predRFFinal <- predict(RForest, testFinal)
+predRFFinal
+```
+
+<br>
+<h3>Submission of prediction</h3>
+Create the files for submitting to Coursera
+```{r}
+answers = predRFFinal
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(answers)
+```
+
+<br><br>
+<h2>Annex A</h2>
+<h3>Confusion Matrix. Random Forest</h3>
+```{r}
+confusionMatrix(validation$classe, predRF1)
+```
+
+<h2>Annex B</h2>
+<h3>Importance of variables</h3>
+```{r}
+ImpVar <- varImp(RForest)
+plot(ImpVar)
+```
